@@ -1,5 +1,3 @@
-import pandas.io.sql as sqlio
-import matplotlib.pyplot as plt
 import numpy as np
 from datetime import datetime
 import pandas as pd
@@ -10,15 +8,11 @@ from sklearn.preprocessing import PolynomialFeatures
 from sklearn.preprocessing import StandardScaler
 from tensorflow.keras.layers import Dense, Dropout, LSTM
 from tensorflow.keras.models import Sequential
+from sklearn.svm import SVC
 #import pandas_datareader as web
 #from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
 #from sklearn.preprocessing import StandardScaler
-import json
-#import seaborn as sns
-#import mariadb
-import sys
-import mysql.connector
 from sqlalchemy import create_engine
 import datetime
 from datetime import timedelta
@@ -40,6 +34,7 @@ class Predicition:
 
 
     def predict_tech(self):
+
         # transform techtable
         tech_table = pd.read_sql("SELECT * FROM cryptogroup2.tech_indikators", self.engine_ds.connect()) #tech_table
 
@@ -54,7 +49,7 @@ class Predicition:
             tech_dict[x].set_index(index, inplace=True)
             tech_dict[x] = tech_dict[x][:-28]# feature
         del tech_dict["solana"]
-        return tech_dict
+        #return tech_dict
 
 
         #transform price table
@@ -64,12 +59,14 @@ class Predicition:
         pivot_price_change.dropna(axis=0, inplace=True)
         pivot_price_BHS = pivot_price_change.applymap(lambda x: 1 if (x > 0.10) else 0 if (x <= 0.05 and x >= -0.05) else -1) # alternativ  just buy and sell
         pivot_price_BHS_shift = pivot_price_BHS[31:] #target
+        print(pivot_price_BHS_shift)
 
         prediction_dict = {}
         predition_feature = {}
         for x in list(pivot_price_BHS_shift.columns):
             prediction_dict[x] = DecisionTreeClassifier()
             feature = tech_dict[x]
+            print(feature)
             target = pivot_price_BHS_shift[x]
             #feature_train, feature_test, target_train, target_test = train_test_split(feature, target, test_size=0.10)
             feature_train = np.array(feature[:1000]).reshape(-1, 1)
@@ -86,7 +83,7 @@ class Predicition:
             predition_feature[x] = prediction_dict[x].predict(predicition_feature)
 
         prediction_recomm_30_day = pd.DataFrame(predition_feature)[-1:].transpose().reset_index()
-
+        print(prediction_recomm_30_day)
         prediction_recomm_30_day.to_sql("prediction_signal", con=self.engine_ds, if_exists='replace', index=False, chunksize=1000)
 
 
@@ -121,69 +118,64 @@ class Predicition:
 
         return (bollinger_signal, rsi_signal, macd_signal, df_ema9_macd_hist_signal)
 
-    """    
-    def predict_metric_price(self):
+
+    """def predict_metric_price(self):
         #get the metrics
         metric_indikator = pd.read_sql("SELECT * FROM cryptogroup2.CoinMetric", self.engine_ds.connect())
-        # pivot_tech_indikator = pd.pivot_table(metric_indikator, index="date", columns="asset")
-        #metric_indikator_btc = metric_indikator_btc.set_index("date").sort_index()
-        #metric_indikator_btc_pivot = pd.pivot_table(metric_indikator_btc, index="date", columns="metric_name")
-        #print(metric_indikator_btc_pivot)
-        metric_tabelle_dict = {}
-        metric_tabelle_dict_not_all = {}
-        for x in list(metric_indikator.asset.unique()):
+        range_liste = list(filter(None, metric_indikator.asset.unique()))
+        metric_tab_dict = {}
+        metric_tabelle_dict_shifted = {}
+        for x in range_liste:
             metric_tabelle = metric_indikator[metric_indikator["asset"] == x]
-            metric_tabelle_dict[x] = metric_tabelle
-            metric_tabelle_dict[x] = pd.pivot_table(metric_tabelle_dict[x], index="date", columns="metric_name")
-            metric_tabelle_dict[x].columns = metric_tabelle_dict[x].columns.droplevel()
-            metric_tabelle_dict_not_all[x] = metric_tabelle_dict[x][:-31]
+            #print(metric_tabelle)
+            metric_tab_dict[x] = metric_tabelle
+            metric_tab_dict[x] = pd.pivot_table(metric_tab_dict[x], index="date", columns="metric_name")
+            metric_tab_dict[x].columns = metric_tab_dict[x].columns.droplevel()
+            print(metric_tab_dict[x])
+            metric_tabelle_dict_shifted[x] = metric_tab_dict[x][:-29]
 
-        #print(metric_tabelle_dict_not_all)
-        #print("#################################")
-        #print(metric_tabelle_dict)
-        #print(metric_tabelle_dict)
 
         # get the prices
-        price_table = self.tech_insert.load(self)#.dropna(axis=1,inplace=True)
-        price_table.fillna(method="ffill", inplace=True)
-        price_table.dropna(axis=1, inplace=True)
+        price = pd.read_sql("SELECT * FROM cryptogroup2.HistCoins", self.engine_ds.connect())
+        pivot_price = pd.pivot_table(price, index="date", columns="id", values="price")
+        pivot_price.fillna(method="ffill", inplace=True)
+        pivot_price.dropna(axis=1, inplace=True)
 
-        prediction_dict_metri_sgd = {}
-        prediction_dict_metri_sgd_futer  = {}
-        for x in list(metric_indikator.asset.unique()):
-            feature_train = metric_tabelle_dict_not_all[x][:1200] #metric_tabelle_dict_not_all
-            target_train = price_table[x][:1200]
-            feature_test = metric_tabelle_dict_not_all[x][-50:]
-            target_test = price_table[x][-50:]
-            predicition_feature = metric_tabelle_dict[x][-30:]
+        prediction_dict_REG = {}
+        prediction_dict_REG_FUT  = {}
+        for x in range_liste:
+            feature_train = metric_tabelle_dict_shifted[x][:1200] #metric_tabelle_dict_not_all
+            target_train = pivot_price[x][:1200]
+            feature_test = metric_tabelle_dict_shifted[x][-50:]
+            target_test = pivot_price[x][-50:]
+            predicition_feature = metric_tab_dict[x][-30:]
+
             #print(x)
             #print(predicition_feature)
             #print(feature_train)
             #print(target_train)
             #prediction_dict_metri_sgd[x] = SGDRegressor(max_iter=100)
-            prediction_dict_metri_sgd[x] = make_pipeline(PolynomialFeatures(2),
-                         LinearRegression())
-            prediction_dict_metri_sgd[x].fit(feature_train, target_train)
-            prediction_dict_metri_sgd_futer[x] = prediction_dict_metri_sgd[x].predict(feature_test)
-
-            #print(prediction_dict_metri_sgd[x].score(feature_test, target_test)) it don't make sense, because that are contiues values.
-
-        #print(prediction_dict_metri_sgd)
-        print(pd.DataFrame(prediction_dict_metri_sgd_futer))
-        #print(pd.DataFrame(prediction_dict_metri_sgd_futer)[-1:].transpose)"""
+            prediction_dict_REG[x] = make_pipeline(#PolynomialFeatures(1),
+                                                   LinearRegression()
+                )
 
 
-    def predict_metric_price_lstm(self):
+
+            prediction_dict_REG[x].fit(feature_train, target_train)
+            prediction_dict_REG_FUT[x] = prediction_dict_REG[x].predict(predicition_feature)"""
+
+    def predict_metric_price(self):
+
         metric_tab_full = {}
         metric_tab_train = {}
         prediction_days = 60
         future_day_start = 30
         future_day_end = 31
         future_day = 27
-        end_dict = {}
+        train_dict = {}
         scaler_dict_m = {}
         scaler_dict_p = {}
-        metric_tabelle_dict_not_all_trans = {}
+        metric_tab_train_tra = {}
         model_dict = {}
         model_dict_fit = {}
         metric_tabelle_dict_predict = {}
@@ -200,7 +192,7 @@ class Predicition:
 
         #prepare metrics
         metric_indikator = pd.read_sql("SELECT * FROM cryptogroup2.CoinMetric", self.engine_ds.connect())
-        range_liste = list(filter(None, metric_indikator.asset.unique() ))
+        range_liste = list(filter(None, metric_indikator.asset.unique()))
         for x in range_liste:
             print(pivot_price[x])
             print(x)
@@ -211,27 +203,23 @@ class Predicition:
             scaler_dict_m[x] = StandardScaler() #scaler for the metrics
             scaler_dict_p[x] = StandardScaler() # scaler for the price
             # transfer metric table
-            metric_tabelle_dict_not_all_trans[x] = scaler_dict_m[x].fit_transform(metric_tab_train[x])
+            metric_tab_train_tra[x] = scaler_dict_m[x].fit_transform(metric_tab_train[x])
             shape = len(list(metric_tab_full[x].columns)) #shape how much different metrics go into RNN
             # transfer price table
             price_tabel_trans = scaler_dict_p[x].fit_transform(np.array(pivot_price[x]).reshape(-1, 1))
             x_liste, y_liste = [], []
 
             for x1 in range(prediction_days, len(pivot_price[x]) - future_day): #  alternativ metric_tabelle_dict_not_all_trans, price meistens kürzer
-                x_liste.append((metric_tabelle_dict_not_all_trans[x][x1 - prediction_days:x1]).reshape(-1, shape))
-                #print(len(price_tabel_trans))
+                x_liste.append((metric_tab_train_tra[x][x1 - prediction_days:x1]).reshape(-1, shape))
                 y_liste.append(float(price_tabel_trans[x1 + future_day - 1]))
-
 
             arr_liste_x, arr_liste_y = np.array(x_liste), np.array(y_liste).reshape(-1, 1)
             #arr_liste_x = np.array(x_liste)
-            end_dict[x] = [arr_liste_x, arr_liste_y]
-            print(end_dict)
-            #print(len(end_dict[x][1]))
-            #print((end_dict[x][0]).shape)
+            train_dict[x] = [arr_liste_x, arr_liste_y]
+            print(train_dict)
 
         for x in range_liste:
-            x_train = end_dict[x][0]
+            x_train = train_dict[x][0]
             model = Sequential()
             model.add(LSTM(units=50, return_sequences=True, input_shape=(x_train.shape[1], x_train.shape[2])))
             # Dropoutlayer with 20% Dropout to omitt random 20% of the input to prevent overfitting.
@@ -242,19 +230,16 @@ class Predicition:
             model.add(Dropout(0.2))
             model.add(Dense(units=1))
             model_dict[x] = model
-            # print(xy_train[x][0].shape)
-            # print(xy_train[x][1].shape)
-            #print(model_dict[x].summary())
 
         for x in range_liste:
-            x_train = end_dict[x][0]
-            y_train = end_dict[x][1]
+            x_train = train_dict[x][0]
+            y_train = train_dict[x][1]
             # print(model_dict[x])
             model_dict[x].compile(optimizer='adam', loss='MeanAbsoluteError')
             model_dict[x].fit(x_train, y_train, epochs=20, batch_size=32)
 
             model_dict_fit[x] = model_dict[x]
-            #print(model_dict_fit[x].summary())
+
 
         for x in range_liste:
             metric_tabelle_dict_predict[x] = metric_tab_full[x][-90:]
@@ -284,6 +269,5 @@ class Predicition:
                 predicition_list.append([x1, pd.Timestamp(datetime.datetime.now().date() + timedelta(days=x2 + future_day)),
                                          prediction_prices_back_trans[x1][x2, 0]])
 
-        predictionFrame = pd.DataFrame(predicition_list, columns=["Asset", "Date", "Price"])#.set_index("Date")
-        print(predictionFrame)
+        predictionFrame = pd.DataFrame(predicition_list, columns=["Asset", "Date", "Price"])
         predictionFrame.to_sql("prediction", con=self.engine_ds, if_exists='replace', index=False, chunksize=1000)

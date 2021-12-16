@@ -6,17 +6,18 @@ from tech_ingest import TechInsert
 from refutation.sentiment_corr_reject import Refute
 from prediction_views.prediction import Predicition
 gestern = pd.Timestamp(datetime.datetime.now().date() - timedelta(days=1))
-
+import time
 if __name__ == '__main__':
     # objekts
     metric_insert = MetricInsert()
     tech_insert = TechInsert()
     refute = Refute()
     predict = Predicition()
+    predict.predict_tech()
     # ingest the tech data
     tech_insert.ingest_tech(tech_insert.calculate_tech_ind(tech_insert.load()))
 
-    # ingest the metric data"""
+    # ingest the metric data
 
     metric_insert.ingest_metric(metric_insert.load("RevHashNtv", ['btc', 'eth']))
     metric_insert.ingest_metric(metric_insert.load("AdrActCnt", ['btc', 'eth', 'ltc']))
@@ -28,12 +29,7 @@ if __name__ == '__main__':
     metric_insert.ingest_metric(metric_insert.load("TxCnt", ['eth', 'ltc', 'ada', 'xmr']))
     metric_insert.ingest_metric(metric_insert.load("IssTotNtv", ['xmr']))
     metric_insert.ingest_metric(metric_insert.load("RevNtv", ['xmr']))
-
-    #predict.predict_tech()
-    predict.predict_metric_price_lstm()
-
-
-    #predict   predict.predict_metric_price_lstm()
-
-    #refute the correlation between sentiment and Price
-    refute.refute()
+    time.sleep(60)
+    #make predictions
+    predict.predict_tech()
+    #predict.predict_metric_price()
