@@ -1,5 +1,4 @@
 import datetime
-from datetime import timedelta
 from coinmetrics.api_client import CoinMetricsClient
 import pandas as pd
 from sqlalchemy import create_engine
