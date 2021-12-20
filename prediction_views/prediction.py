@@ -5,26 +5,21 @@ from sklearn.linear_model import SGDRegressor
 from sklearn.pipeline import make_pipeline
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import PolynomialFeatures
+from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import StandardScaler
 from tensorflow.keras.layers import Dense, Dropout, LSTM
 from tensorflow.keras.models import Sequential
+from sklearn.naive_bayes import GaussianNB
+from sklearn.model_selection import GridSearchCV
 from sklearn.svm import SVC
-#import pandas_datareader as web
-#from sklearn.preprocessing import MinMaxScaler
-from sklearn.model_selection import train_test_split
-#from sklearn.preprocessing import StandardScaler
 from sqlalchemy import create_engine
 import datetime
 from datetime import timedelta
-#from coinmetrics.api_client import CoinMetricsClient
-#import coinmetrics
-import ta
-
 date = datetime.datetime.now()
-gestern = pd.Timestamp(datetime.datetime.now().date() - timedelta(days=1))
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
 from insert_data.tech_ingest import TechInsert
+from sklearn.svm import SVC
 
 class Predicition:
     def __init__(self,):
@@ -38,17 +33,19 @@ class Predicition:
         # transform techtable
         tech_table = pd.read_sql("SELECT * FROM cryptogroup2.tech_indikators", self.engine_ds.connect()) #tech_table
 
-        tech_dict = {}
+        tech_dict_full = {}
+        tech_dict_train ={}
         for x in list(tech_table.asset.unique()):
-            tech_dict[x] = tech_table[tech_table["asset"] == x]
-            tech_dict[x] = tech_dict[x].apply(lambda x: self.transform(x), axis=1)
+            tech_dict_full[x] = tech_table[tech_table["asset"] == x]
+            tech_dict_full[x] = tech_dict_full[x].apply(lambda x: self.transform(x), axis=1)
             index = tech_table[tech_table["asset"] == x].date
-            tech_dict[x] = pd.DataFrame([[a, b, c, d] for a, b, c, d in tech_dict[x].values],
+            tech_dict_full[x] = pd.DataFrame([[a, b, c, d] for a, b, c, d in tech_dict_full[x].values],
                                         columns=["bollinger_signal", "rsi_signal", "macd_signal",
+
                                                  "df_ema9_macd_hist_signal"])
-            tech_dict[x].set_index(index, inplace=True)
-            tech_dict[x] = tech_dict[x][:-28]# feature
-        del tech_dict["solana"]
+            tech_dict_full[x].set_index(index, inplace=True)
+            tech_dict_train[x] = tech_dict_full[x][:-28]# feature
+        del tech_dict_full["solana"]
         #return tech_dict
 
 
@@ -59,31 +56,33 @@ class Predicition:
         pivot_price_change.dropna(axis=0, inplace=True)
         pivot_price_BHS = pivot_price_change.applymap(lambda x: 1 if (x > 0.10) else 0 if (x <= 0.05 and x >= -0.05) else -1) # alternativ  just buy and sell
         pivot_price_BHS_shift = pivot_price_BHS[31:] #target
-        print(pivot_price_BHS_shift)
 
         prediction_dict = {}
         predition_feature = {}
         for x in list(pivot_price_BHS_shift.columns):
-            prediction_dict[x] = DecisionTreeClassifier()
-            feature = tech_dict[x]
-            print(feature)
+            prediction_dict[x] = DecisionTreeClassifier(max_depth=4)
+            #prediction_dict[x] = KNeighborsClassifier(n_neighbors=3)
+            #prediction_dict[x] = GaussianNB()
+            #prediction_dict[x] = SVC(kernel= 'linear', max_iter=750, C=0.1,gamma='auto')
+            feature = tech_dict_train[x]
             target = pivot_price_BHS_shift[x]
             #feature_train, feature_test, target_train, target_test = train_test_split(feature, target, test_size=0.10)
-            feature_train = np.array(feature[:1000]).reshape(-1, 1)
-            target_train = np.array(feature[:1000]).reshape(-1, 1)
-            feature_test = np.array(target[-100:]).reshape(-1, 1)
-            target_test = np.array(target[-100:]).reshape(-1, 1)
             feature_train = feature[:1200]
             target_train = target[:1200]
             feature_test = feature[-100:]
             target_test = target[-100:]
-            predicition_feature = feature[-30:]
+            predicition_feature = tech_dict_full[x][-30:]
             prediction_dict[x].fit(feature_train, target_train)
             score = prediction_dict[x].score(feature_test, target_test)
             predition_feature[x] = prediction_dict[x].predict(predicition_feature)
+            #print(score)
+            #param_grid = [{'max_depth': range(1, 21)}]
+            #search = GridSearchCV(prediction_dict[x], param_grid, cv=10)
+            #search.fit(feature_train, target_train)
+            #print("Best parameter (CV score={:.2f}):{})".format(search.best_score_, search.best_params_))
 
         prediction_recomm_30_day = pd.DataFrame(predition_feature)[-1:].transpose().reset_index()
-        print(prediction_recomm_30_day)
+        #print(prediction_recomm_30_day)
         prediction_recomm_30_day.to_sql("prediction_signal", con=self.engine_ds, if_exists='replace', index=False, chunksize=1000)
 
 
@@ -183,6 +182,7 @@ class Predicition:
         metric_tabelle_dict_predict_trans = {}
         prediction_dict = {}
         prediction_prices_back_trans = {}
+        metric_tab_train_4_dim  = {}
         #prepare price
         price = pd.read_sql("SELECT * FROM cryptogroup2.HistCoins", self.engine_ds.connect())
         pivot_price = pd.pivot_table(price, index="date", columns="id", values="price")
@@ -190,34 +190,76 @@ class Predicition:
         pivot_price.dropna(axis=1, inplace=True)
 
 
+
         #prepare metrics
         metric_indikator = pd.read_sql("SELECT * FROM cryptogroup2.CoinMetric", self.engine_ds.connect())
         range_liste = list(filter(None, metric_indikator.asset.unique()))
         for x in range_liste:
-            print(pivot_price[x])
+            #print(pivot_price[x])
+            print("#####")
+            print(len(pivot_price[x]))
+            print("#####")
             print(x)
+            print("#####")
             metric_tab_full[x] = metric_indikator[metric_indikator["asset"] == x]
             metric_tab_full[x] = pd.pivot_table(metric_tab_full[x], index="date", columns="metric_name")
             metric_tab_full[x].columns = metric_tab_full[x].columns.droplevel() #until last day e.g whole dataset
             metric_tab_train[x] = metric_tab_full[x][:-28] #  subtraction of the last 28 Datapoints these 28 dataset we need for the prediction
+            metric_tab_train_4_dim[x] = metric_tab_full[x][30:-28]
+            pivot_price_4_dim = pivot_price[x][1:-28]
+            pivot_price_4_dim_target = pivot_price[x][29:]
+            #print(pivot_price_4_dim_target)
+            #print(pivot_price_4_dim)
+            print("#####")
+            #print(metric_tab_train_4_dim[x])
+            print("#####")
+            #print(metric_tab_train[x])
+            print("#####")
+            #print(len(metric_tab_train[x]))
             scaler_dict_m[x] = StandardScaler() #scaler for the metrics
             scaler_dict_p[x] = StandardScaler() # scaler for the price
             # transfer metric table
-            metric_tab_train_tra[x] = scaler_dict_m[x].fit_transform(metric_tab_train[x])
-            shape = len(list(metric_tab_full[x].columns)) #shape how much different metrics go into RNN
+            #metric_tab_train_tra[x] = scaler_dict_m[x].fit_transform(metric_tab_train[x])
+            metric_tab_train_tra[x] = scaler_dict_m[x].fit_transform(metric_tab_train_4_dim[x])
+            #print(metric_tab_train_tra[x])
+            #print(metric_tab_train_tra[x].shape)
+            # price for the feature
+            price_tabel_trans = scaler_dict_p[x].fit_transform(np.array(pivot_price_4_dim).reshape(-1, 1))
+
+            #price for the target
+            price_tabel_trans_target = scaler_dict_p[x].fit_transform(np.array(pivot_price_4_dim_target).reshape(-1, 1))
+
+            #print(price_tabel_trans)
+            #print(price_tabel_trans.shape)
+            array_4_dim = np.concatenate((metric_tab_train_tra[x], price_tabel_trans), axis=1)
+            #print(array_4_dim)
+            #print(array_4_dim.shape)
+            shape = len(list(metric_tab_full[x].columns)) + 1
+            #print("#####")
+            #print(shape)
+            #print("####")
+            #shape = len(list(metric_tab_full[x].columns)) #shape how much different metrics go into RNN
             # transfer price table
-            price_tabel_trans = scaler_dict_p[x].fit_transform(np.array(pivot_price[x]).reshape(-1, 1))
+            #price_tabel_trans = scaler_dict_p[x].fit_transform(np.array(pivot_price[x]).reshape(-1, 1))
+            #price_tabel_trans = scaler_dict_p[x].fit_transform(np.array(pivot_price[x]).reshape(-1, 1))
+
             x_liste, y_liste = [], []
 
-            for x1 in range(prediction_days, len(pivot_price[x]) - future_day): #  alternativ metric_tabelle_dict_not_all_trans, price meistens kürzer
+            """for x1 in range(prediction_days, len(pivot_price[x]) - future_day): #  alternativ metric_tabelle_dict_not_all_trans, price meistens kürzer
                 x_liste.append((metric_tab_train_tra[x][x1 - prediction_days:x1]).reshape(-1, shape))
-                y_liste.append(float(price_tabel_trans[x1 + future_day - 1]))
+                y_liste.append(float(price_tabel_trans[x1 + future_day - 1]))"""
 
+            for x1 in range(prediction_days, len(pivot_price_4_dim) - future_day):  # alternativ metric_tabelle_dict_not_all_trans, price meistens kürzer
+                x_liste.append((array_4_dim[x1 - prediction_days:x1]).reshape(-1, shape))
+                y_liste.append(float(price_tabel_trans_target[x1 + future_day - 1]))
+
+            print(x_liste)
+            print(y_liste)
             arr_liste_x, arr_liste_y = np.array(x_liste), np.array(y_liste).reshape(-1, 1)
             #arr_liste_x = np.array(x_liste)
             train_dict[x] = [arr_liste_x, arr_liste_y]
             print(train_dict)
-
+            """
         for x in range_liste:
             x_train = train_dict[x][0]
             model = Sequential()
@@ -240,11 +282,15 @@ class Predicition:
 
             model_dict_fit[x] = model_dict[x]
 
+        """
 
         for x in range_liste:
             metric_tabelle_dict_predict[x] = metric_tab_full[x][-90:]
             metric_tabelle_dict_predict_trans[x] = scaler_dict_m[x].fit_transform(metric_tabelle_dict_predict[x])
-            shape = len(list(metric_tabelle_dict_predict[x].columns))
+
+            price_4_dim_predict = pivot_price[x][-90:]
+            price_4_dim_predict_trans = scaler_dict_p[x].fit_transform(price_4_dim_predict)
+            shape = len(list(metric_tabelle_dict_predict[x].columns)) +1
             x_liste_p = []
             for x1 in range(prediction_days, len(metric_tabelle_dict_predict_trans[x])):
                 x_liste_p.append((metric_tabelle_dict_predict_trans[x][x1 - prediction_days:x1]).reshape(-1, shape))

@@ -5,8 +5,9 @@ from coin_metrics_ingest import MetricInsert
 from tech_ingest import TechInsert
 from refutation.sentiment_corr_reject import Refute
 from prediction_views.prediction import Predicition
-gestern = pd.Timestamp(datetime.datetime.now().date() - timedelta(days=1))
+yesterday = pd.Timestamp(datetime.datetime.now().date() - timedelta(days=1))
 import time
+
 if __name__ == '__main__':
     # objekts
     metric_insert = MetricInsert()
@@ -29,7 +30,7 @@ if __name__ == '__main__':
     metric_insert.ingest_metric(metric_insert.load("TxCnt", ['eth', 'ltc', 'ada', 'xmr']))
     metric_insert.ingest_metric(metric_insert.load("IssTotNtv", ['xmr']))
     metric_insert.ingest_metric(metric_insert.load("RevNtv", ['xmr']))
-    time.sleep(60)
+    #time.sleep(60)
     #make predictions
     predict.predict_tech()
-    #predict.predict_metric_price()
+    predict.predict_metric_price()

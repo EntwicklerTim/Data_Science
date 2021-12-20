@@ -1,8 +1,6 @@
 from datetime import datetime
 import pandas as pd
 from sqlalchemy import create_engine
-import datetime
-from datetime import timedelta
 import ta
 
 
